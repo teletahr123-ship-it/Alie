@@ -1,0 +1,49 @@
+name: Music Bot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"   # شبكة أمان: يشغّله إذا توقفت السلسلة
+
+# تشغيل واحد فقط في نفس الوقت؛ التشغيل الجديد ينتظر ولا يقطع القديم
+concurrency:
+  group: music-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          SESSION_STRING: ${{ secrets.SESSION_STRING }}
+          MAX_RUNTIME_SECONDS: "20400"   # 5 ساعات و40 دقيقة ثم يغلق نفسه
+        # exec حتى تصل إشارات الإيقاف (SIGINT/SIGTERM) إلى بايثون مباشرة
+        # فيغلق الحساب والمكالمة بشكل صحيح بدون أخطاء
+        run: exec python -u main.py
+
+      # يعمل فقط عند انتهاء الوقت بشكل طبيعي (وليس عند الإلغاء اليدوي أو الفشل)
+      - name: Start next run
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: gh workflow run music.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
